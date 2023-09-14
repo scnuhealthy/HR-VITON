@@ -22,7 +22,7 @@ def get_opt():
     parser.add_argument('-b', '--batch-size', type=int, default=8)
     parser.add_argument('--fp16', action='store_true', help='use amp')
 
-    parser.add_argument("--dataroot", default="./data/zalando-hd-resize")
+    parser.add_argument("--dataroot", default="./data")
     parser.add_argument("--datamode", default="test")
     parser.add_argument("--data_list", default="test_pairs.txt")
     parser.add_argument("--datasetting", default="paired")
@@ -70,8 +70,8 @@ def test(opt, test_loader, board, tocg, D=None):
         D.cuda()
         D.eval()
     
-    os.makedirs(os.path.join('./output', opt.tocg_checkpoint.split('/')[-2], opt.tocg_checkpoint.split('/')[-1],
-                             opt.datamode, opt.datasetting, 'multi-task'), exist_ok=True)
+    grid_dir = os.path.join('./output', opt.datamode, opt.datasetting, 'my_multi-task')
+    os.makedirs(grid_dir, exist_ok=True)
     num = 0
     iter_start_time = time.time()
     if D is not None:
@@ -81,7 +81,7 @@ def test(opt, test_loader, board, tocg, D=None):
         # input1
         c_paired = inputs['cloth'][opt.datasetting].cuda()
         cm_paired = inputs['cloth_mask'][opt.datasetting].cuda()
-        cm_paired = torch.FloatTensor((cm_paired.detach().cpu().numpy() > 0.5).astype(np.float)).cuda()
+        cm_paired = torch.FloatTensor((cm_paired.detach().cpu().numpy() > 0.5).astype(float)).cuda()
         # input2
         parse_agnostic = inputs['parse_agnostic'].cuda()
         densepose = inputs['densepose'].cuda()
@@ -100,10 +100,10 @@ def test(opt, test_loader, board, tocg, D=None):
             input2 = torch.cat([parse_agnostic, densepose], 1)
 
             # forward
-            flow_list, fake_segmap, warped_cloth_paired, warped_clothmask_paired = tocg(input1, input2)
+            flow_list, fake_segmap, warped_cloth_paired, warped_clothmask_paired = tocg(opt, input1, input2)
             
             # warped cloth mask one hot 
-            warped_cm_onehot = torch.FloatTensor((warped_clothmask_paired.detach().cpu().numpy() > 0.5).astype(np.float)).cuda()
+            warped_cm_onehot = torch.FloatTensor((warped_clothmask_paired.detach().cpu().numpy() > 0.5).astype(float)).cuda()
             
             if opt.clothmask_composition != 'no_composition':
                 if opt.clothmask_composition == 'detach':
@@ -137,18 +137,16 @@ def test(opt, test_loader, board, tocg, D=None):
                             (im_c[i].cpu() / 2 + 0.5), parse_cloth_mask[i].cpu().expand(3, -1, -1), (warped_cloth_paired[i].cpu().detach() / 2 + 0.5), (warped_cm_onehot[i].cpu().detach()).expand(3, -1, -1),
                             visualize_segmap(label.cpu(), batch=i), visualize_segmap(fake_segmap.cpu(), batch=i), (im[i]/2 +0.5), (misalign[i].cpu().detach()).expand(3, -1, -1)],
                                 nrow=4)
-            save_image(grid, os.path.join('./output', opt.tocg_checkpoint.split('/')[-2], opt.tocg_checkpoint.split('/')[-1],
-                             opt.datamode, opt.datasetting, 'multi-task',
-                             (inputs['c_name']['paired'][i].split('.')[0] + '_' +
-                              inputs['c_name']['unpaired'][i].split('.')[0] + '.png')))
+            unpaired_names = (inputs['c_name']['paired'][i].split('.')[0] + '_' +
+                              inputs['c_name']['unpaired'][i].split('.')[0] + '.png')
+            save_image(grid, os.path.join(grid_dir,unpaired_names))
         num += c_paired.shape[0]
         print(num)
     if D is not None:
         D_score.sort(key=lambda x: x[1], reverse=True)
         # Save D_score
         for name, score in D_score:
-            f = open(os.path.join('./output', opt.tocg_checkpoint.split('/')[-2], opt.tocg_checkpoint.split('/')[-1],
-                                opt.datamode, opt.datasetting, 'multi-task', 'rejection_prob.txt'), 'a')
+            f = open(os.path.join('./output', opt.datamode, opt.datasetting, 'my_multi-task', 'rejection_prob.txt'), 'a')
             f.write(name + ' ' + str(score) + '\n')
             f.close()
     print(f"Test time {time.time() - iter_start_time}")
@@ -156,9 +154,10 @@ def test(opt, test_loader, board, tocg, D=None):
 
 def main():
     opt = get_opt()
+    opt.cuda = True
     print(opt)
     print("Start to test %s!")
-    os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
+    # os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
     
     # create test dataset & loader
     test_dataset = CPDatasetTest(opt)
@@ -167,7 +166,7 @@ def main():
     # visualization
     if not os.path.exists(opt.tensorboard_dir):
         os.makedirs(opt.tensorboard_dir)
-    board = SummaryWriter(log_dir=os.path.join(opt.tensorboard_dir, opt.tocg_checkpoint.split('/')[-2], opt.tocg_checkpoint.split('/')[-1], opt.datamode, opt.datasetting))
+    board = SummaryWriter(log_dir=os.path.join(opt.tensorboard_dir, opt.datamode, opt.datasetting))
 
     # Model
     input1_nc = 4  # cloth + cloth-mask
@@ -180,9 +179,9 @@ def main():
     else:
         D = None
     # Load Checkpoint
-    load_checkpoint(tocg, opt.tocg_checkpoint)
+    load_checkpoint(tocg, opt.tocg_checkpoint, opt)
     if not opt.D_checkpoint == '' and os.path.exists(opt.D_checkpoint):
-        load_checkpoint(D, opt.D_checkpoint)
+        load_checkpoint(D, opt.D_checkpoint, opt)
     # Train
     test(opt, test_loader, board, tocg, D=D)
 

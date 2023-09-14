@@ -217,15 +217,11 @@ def test(opt, test_loader, tocg, generator):
             
 
             output = generator(torch.cat((agnostic, densepose, warped_cloth), dim=1), parse)
-            
-            print(warped_cloth_paired.shape)
-            warped_cloth_paired = F.interpolate(warped_cloth_paired, size=(iH,iW))
-            
             # visualize
             unpaired_names = []
             for i in range(shape[0]):
                 grid = make_image_grid([(clothes[i].cpu() / 2 + 0.5), (pre_clothes_mask[i].cpu()).expand(3, -1, -1), visualize_segmap(parse_agnostic.cpu(), batch=i), ((densepose.cpu()[i]+1)/2),
-                                        (warped_cloth_paired[i].cpu().detach() / 2 + 0.5), (warped_clothmask[i].cpu().detach()).expand(3, -1, -1), visualize_segmap(fake_parse_gauss.cpu(), batch=i),
+                                        (warped_cloth[i].cpu().detach() / 2 + 0.5), (warped_clothmask[i].cpu().detach()).expand(3, -1, -1), visualize_segmap(fake_parse_gauss.cpu(), batch=i),
                                         (pose_map[i].cpu()/2 +0.5), (warped_cloth[i].cpu()/2 + 0.5), (agnostic[i].cpu()/2 + 0.5),
                                         (im[i]/2 +0.5), (output[i].cpu()/2 +0.5)],
                                         nrow=4)
@@ -234,7 +230,9 @@ def test(opt, test_loader, tocg, generator):
                 unpaired_names.append(unpaired_name)
                 
             # save output
-            save_images(output, unpaired_names, output_dir)
+            w = (warped_cloth.cpu().detach())
+            save_images(w, unpaired_names, output_dir)
+            # save_images(output, unpaired_names, output_dir)
                 
             num += shape[0]
             print(num)

@@ -27,7 +27,8 @@ class CPDataset(data.Dataset):
         self.data_path = osp.join(opt.dataroot, opt.datamode)
         self.transform = transforms.Compose([  \
                 transforms.ToTensor(),   \
-                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                                            ])
 
         # load data list
         im_names = []
@@ -424,3 +425,109 @@ class CPDataLoader(object):
             batch = self.data_iter.__next__()
 
         return batch
+
+    
+# vis
+
+def get_opt():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--gpu_ids", default="")
+    parser.add_argument('-j', '--workers', type=int, default=4)
+    parser.add_argument('-b', '--batch-size', type=int, default=1)
+    parser.add_argument('--fp16', action='store_true', help='use amp')
+    # Cuda availability
+    parser.add_argument('--cuda',default=False, help='cuda or cpu')
+
+    parser.add_argument('--test_name', type=str, default='test', help='test name')
+    parser.add_argument("--dataroot", default="./data/zalando-hd-resize")
+    parser.add_argument("--datamode", default="test")
+    parser.add_argument("--data_list", default="test_pairs.txt")
+    parser.add_argument("--output_dir", type=str, default="./Output")
+    parser.add_argument("--datasetting", default="unpaired")
+    parser.add_argument("--fine_width", type=int, default=768)
+    parser.add_argument("--fine_height", type=int, default=1024)
+
+    parser.add_argument('--tensorboard_dir', type=str, default='./data/zalando-hd-resize/tensorboard', help='save tensorboard infos')
+    parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help='save checkpoint infos')
+    parser.add_argument('--tocg_checkpoint', type=str, default='./eval_models/weights/v0.1/mtviton.pth', help='tocg checkpoint')
+    parser.add_argument('--gen_checkpoint', type=str, default='./eval_models/weights/v0.1/gen.pth', help='G checkpoint')
+
+    parser.add_argument("--tensorboard_count", type=int, default=100)
+    parser.add_argument("--shuffle", action='store_true', help='shuffle input data')
+    parser.add_argument("--semantic_nc", type=int, default=13)
+    parser.add_argument("--output_nc", type=int, default=13)
+    parser.add_argument('--gen_semantic_nc', type=int, default=7, help='# of input label classes without unknown class')
+    
+    # network
+    parser.add_argument("--warp_feature", choices=['encoder', 'T1'], default="T1")
+    parser.add_argument("--out_layer", choices=['relu', 'conv'], default="relu")
+    
+    # training
+    parser.add_argument("--clothmask_composition", type=str, choices=['no_composition', 'detach', 'warp_grad'], default='warp_grad')
+        
+    # Hyper-parameters
+    parser.add_argument('--upsample', type=str, default='bilinear', choices=['nearest', 'bilinear'])
+    parser.add_argument('--occlusion', action='store_true', help="Occlusion handling")
+
+    # generator
+    parser.add_argument('--norm_G', type=str, default='spectralaliasinstance', help='instance normalization or batch normalization')
+    parser.add_argument('--ngf', type=int, default=64, help='# of gen filters in first conv layer')
+    parser.add_argument('--init_type', type=str, default='xavier', help='network initialization [normal|xavier|kaiming|orthogonal]')
+    parser.add_argument('--init_variance', type=float, default=0.02, help='variance of the initialization distribution')
+    parser.add_argument('--num_upsampling_layers', choices=('normal', 'more', 'most'), default='most', # normal: 256, more: 512
+                        help="If 'more', adds upsampling layer between the two middle resnet blocks. If 'most', also add one more upsampling + resnet layer at the end of the generator")
+
+    opt = parser.parse_args()
+    return opt
+
+
+if __name__ == '__main__':
+    import argparse
+    from utils import visualize_segmap
+    parser = argparse.ArgumentParser()
+    opt = get_opt()
+    train_dataset = CPDataset(opt)
+    
+    p = train_dataset[0]
+    image = p['image'].permute(1,2,0).numpy()
+    image *=255
+    image = image.astype(np.uint8)
+    image= Image.fromarray(image)
+    image.save('image.jpg')
+
+    parse_cloth = p['pcm'].permute(1,2,0).numpy()
+    parse_cloth *=255
+    parse_cloth = parse_cloth.astype(np.uint8)
+    parse_cloth = parse_cloth[:,:,0]
+    parse_cloth= Image.fromarray(parse_cloth)
+    parse_cloth.save('pcm.jpg')
+        
+    cloth = p['cloth']['paired'].permute(1,2,0).numpy()
+    cloth *=255
+    cloth = cloth.astype(np.uint8)
+    cloth= Image.fromarray(cloth)
+    cloth.save('cloth.jpg')
+
+    cloth_mask = p['cloth_mask']['paired'].permute(1,2,0).numpy()
+    cloth_mask *=255
+    cloth_mask = cloth_mask.astype(np.uint8)
+    cloth_mask = cloth_mask[:,:,0]
+    cloth_mask= Image.fromarray(cloth_mask)
+    cloth_mask.save('cloth_mask.jpg')
+
+    pose = p['pose'].permute(1,2,0).numpy()
+    pose *=255
+    pose = pose.astype(np.uint8)
+    pose= Image.fromarray(pose)
+    pose.save('pose.jpg')
+    
+    densepose = p['densepose'].permute(1,2,0).numpy()
+    densepose *=255
+    densepose = densepose.astype(np.uint8)
+    densepose= Image.fromarray(densepose)
+    densepose.save('densepose.jpg')
+    
+    parse_agnostic = p['parse_agnostic'].unsqueeze(0)
+    parse_agnostic = visualize_segmap(parse_agnostic,tensor_out=False)
+    parse_agnostic.convert('RGB').save('parse_agnostic.jpg')
